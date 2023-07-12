@@ -1,5 +1,6 @@
 import numpy as np
 import time
+from datetime import datetime
 from binance.client import Client
 from binance.exceptions import BinanceAPIException
 
@@ -26,7 +27,9 @@ prev_momentum = 0
 position_open = False
 current_position_side = None
 entry_price = 0
-stop_loss_percentage = 0.0005  # 0.05% stop loss
+enter_long = False
+enter_short = False
+exit_position = True
 
 while True:
     # Retrieve latest close price
@@ -38,79 +41,79 @@ while True:
     current_momentum = momentum[-1]
 
     # Check for entering long position
-    enter_long = False
-    if prev_momentum < 20 and current_momentum >= 20 and not position_open and (current_position_side is None or current_position_side == 'SHORT'):
-        enter_long = True
+    if not enter_long:
+        if prev_momentum < 20 and current_momentum >= 20 and not position_open and (current_position_side is None or current_position_side == 'SHORT'):
+            enter_long = True
+            exit_position = False
 
     # Check for entering short position
-    enter_short = False
-    if prev_momentum > 80 and current_momentum <= 80 and not position_open and (current_position_side is None or current_position_side == 'LONG'):
-        enter_short = True
+    if not enter_short:
+        if prev_momentum > 80 and current_momentum <= 80 and not position_open and (current_position_side is None or current_position_side == 'LONG'):
+            enter_short = True
+            exit_position = False
 
     # Check for exiting position
-    exit_position = False
-    if position_open:
-        if (current_momentum < 20 and prev_momentum >= 20) or (current_momentum > 80 and prev_momentum <= 80):
+    if not exit_position:
+        if position_open and ((current_momentum < 30 and prev_momentum >= 30) or (current_momentum > 70 and prev_momentum <= 70)):
+            
             exit_position = True
 
     # Execute trading logic
-    if enter_long:
+    if enter_long and not position_open:
         # Enter long position
-        if not position_open:
-            quantity = 0.001
-            try:
-                order = client.futures_create_order(
-                    symbol='BTCUSDT',
-                    side=Client.SIDE_BUY,
-                    type=Client.ORDER_TYPE_MARKET,
-                    quantity=quantity
-                )
-                if order['status'] == 'FILLED':
-                    position_open = True
-                    current_position_side = 'LONG'
-                    entry_price = float(order['avgPrice'])
-                    print(f"Long position opened at {entry_price:.2f}")
-                else:
-                    print(f"Order response: {order}")
-                    print(f"Error message: {order.get('msg')}")
-            except BinanceAPIException as e:
-                if e.code == -2019:
-                    print("Insufficient margin to open position")
-                else:
-                    print(f"Error placing order: {str(e)}")
-                    print(f"Order response: {e.response.json()}")
-        else:
-            print("Cannot open long position. Position already open.")
+        quantity = 0.001
+        try:
+            order = client.futures_create_order(
+                symbol='BTCUSDT',
+                side=Client.SIDE_BUY,
+                type=Client.ORDER_TYPE_MARKET,
+                quantity=quantity
+            )
+            if order['status'] == 'FILLED':
+                position_open = True
+                current_position_side = 'LONG'
+                entry_price = float(order['avgPrice'])
+                print(f"{datetime.now()} - Long position opened at {entry_price:.2f}")
+                enter_long = False  # Reset flag
+                enter_short = False  # Reset flag
+            else:
+                print(f"{datetime.now()} - Order response: {order}")
+                print(f"{datetime.now()} - Error message: {order.get('msg')}")
+        except BinanceAPIException as e:
+            if e.code == -2019:
+                print(f"{datetime.now()} - Insufficient margin to open position")
+            else:
+                print(f"{datetime.now()} - Error placing order: {str(e)}")
+                print(f"{datetime.now()} - Order response: {e.response.json()}")
 
-    if enter_short:
+    if enter_short and not position_open:
         # Enter short position
-        if not position_open:
-            quantity = 0.001
-            try:
-                order = client.futures_create_order(
-                    symbol='BTCUSDT',
-                    side=Client.SIDE_SELL,
-                    type=Client.ORDER_TYPE_MARKET,
-                    quantity=quantity
-                )
-                if order['status'] == 'FILLED':
-                    position_open = True
-                    current_position_side = 'SHORT'
-                    entry_price = float(order['avgPrice'])
-                    print(f"Short position opened at {entry_price:.2f}")
-                else:
-                    print(f"Order response: {order}")
-                    print(f"Error message: {order.get('msg')}")
-            except BinanceAPIException as e:
-                if e.code == -2019:
-                    print("Insufficient margin to open position")
-                else:
-                    print(f"Error placing order: {str(e)}")
-                    print(f"Order response: {e.response.json()}")
-        else:
-            print("Cannot open short position. Position already open.")
+        quantity = 0.001
+        try:
+            order = client.futures_create_order(
+                symbol='BTCUSDT',
+                side=Client.SIDE_SELL,
+                type=Client.ORDER_TYPE_MARKET,
+                quantity=quantity
+            )
+            if order['status'] == 'FILLED':
+                position_open = True
+                current_position_side = 'SHORT'
+                entry_price = float(order['avgPrice'])
+                print(f"{datetime.now()} - Short position opened at {entry_price:.2f}")
+                enter_long = False  # Reset flag
+                enter_short = False  # Reset flag
+            else:
+                print(f"{datetime.now()} - Order response: {order}")
+                print(f"{datetime.now()} - Error message: {order.get('msg')}")
+        except BinanceAPIException as e:
+            if e.code == -2019:
+                print(f"{datetime.now()} - Insufficient margin to open position")
+            else:
+                print(f"{datetime.now()} - Error placing order: {str(e)}")
+                print(f"{datetime.now()} - Order response: {e.response.json()}")
 
-    if exit_position:
+    if exit_position and position_open:
         # Exit position
         try:
             position = client.futures_position_information(symbol='BTCUSDT')
@@ -126,12 +129,14 @@ while True:
                         quantity=quantity
                     )
                     if order['status'] == 'FILLED':
-                        print("Exiting long position")
+                        print(f"{datetime.now()} - Exiting long position")
                         position_open = False
+                        enter_long = False
+            
                         current_position_side = None
                     else:
-                        print(f"Order response: {order}")
-                        print(f"Error message: {order.get('msg')}")
+                        print(f"{datetime.now()} - Order response: {order}")
+                        print(f"{datetime.now()} - Error message: {order.get('msg')}")
                 elif position_side == 'SHORT' and current_position_side == 'SHORT':
                     # Exit short position
                     quantity = abs(float(position[0]['positionAmt']))
@@ -142,28 +147,15 @@ while True:
                         quantity=quantity
                     )
                     if order['status'] == 'FILLED':
-                        print("Exiting short position")
+                        print(f"{datetime.now()} - Exiting short position")
                         position_open = False
+                        enter_short = False
                         current_position_side = None
                     else:
-                        print(f"Order response: {order}")
-                        print(f"Error message: {order.get('msg')}")
+                        print(f"{datetime.now()} - Order response: {order}")
+                        print(f"{datetime.now()} - Error message: {order.get('msg')}")
         except Exception as e:
-            print(f"Error exiting position: {str(e)}")
-
-    if position_open:
-        # Update stop loss price as the price moves in your favor
-        try:
-            current_price = float(client.futures_mark_price(symbol='BTCUSDT')['markPrice'])
-            if current_position_side == 'LONG':
-                stop_loss_price = entry_price * (1 - stop_loss_percentage)
-                stop_loss_price = max(stop_loss_price, current_price * (1 - stop_loss_percentage))
-            elif current_position_side == 'SHORT':
-                stop_loss_price = entry_price * (1 + stop_loss_percentage)
-                stop_loss_price = min(stop_loss_price, current_price * (1 + stop_loss_percentage))
-            print(f"Stop loss updated. Current stop loss: {stop_loss_price:.2f}")
-        except Exception as e:
-            print(f"Error updating stop loss: {str(e)}")
+            print(f"{datetime.now()} - Error exiting position: {str(e)}")
 
     prev_momentum = current_momentum
 
@@ -172,7 +164,7 @@ while True:
     equity = float(account_info['totalWalletBalance'])
 
     # Print balance status and current equity
-    print(f"Momentum: {current_momentum:.2f} | Equity: {equity:.8f}")
+    print(f"{datetime.now()} - Momentum: {current_momentum:.2f} | Equity: {equity:.8f}")
 
     # Delay until the next 5-minute candle open
     current_timestamp = int(time.time())
